@@ -135,23 +135,31 @@ def main(nina_ip, tenmicron_ip):
     while True:
         try:
             data = nina.getTemperatureAndPressure()
-            if len(data) == 2:  # Ensure both temperature and pressure are present
+            if len(data) == 2 and all(isinstance(x, (float, int)) for x in data):  # Ensure both temperature and pressure are present and valid numbers
                 temperature, pressure = data
-                print(f"Temperature from NINA: {temperature} °C")
-                print(f"Pressure from NINA: {pressure} hPa")
-                tenmicron.setTemperature(temperature)
-                tenmicron.setPressure(pressure)
-                # Read back the data from TenMicronManager
-                retrieved_temperature = tenmicron.getTemperature()
-                retrieved_pressure = tenmicron.getPressure()
-                if retrieved_temperature is not None:
-                    print(f"Verified temperature: {retrieved_temperature} °C")
-                if retrieved_pressure is not None:
-                    print(f"Verified pressure: {retrieved_pressure} hPa")
-                print("\n")
+                if temperature is not None and pressure is not None:
+                    print(f"Temperature from NINA: {temperature} °C")
+                    print(f"Pressure from NINA: {pressure} hPa")
+                    
+                    success_temp = tenmicron.setTemperature(temperature)
+                    success_press = tenmicron.setPressure(pressure)
+                    
+                    if success_temp and success_press:
+                        # Read back the data from TenMicronManager
+                        retrieved_temperature = tenmicron.getTemperature()
+                        retrieved_pressure = tenmicron.getPressure()
+                        if retrieved_temperature is not None:
+                            print(f"Verified temperature: {retrieved_temperature} °C")
+                        if retrieved_pressure is not None:
+                            print(f"Verified pressure: {retrieved_pressure} hPa")
+                        print("\n")
+                    else:
+                        print("Failed to update TenMicron with new values.")
+                else:
+                    print("Error: Temperature and/or pressure data missing.")
                 time.sleep(60)  # Wait for one minute before next update
             else:
-                print("Error: Temperature and/or pressure data not available.")
+                print("Error: No weather data received from NINA.")
                 time.sleep(60)  # Wait for one minute before retrying
         except KeyboardInterrupt:
             print("\nExiting...")
