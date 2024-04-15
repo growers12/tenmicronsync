@@ -60,67 +60,6 @@ class TenMicronManager:
                 if attempt == 2:  # Raise exception if all attempts fail
                     raise ConnectionError(f"Failed to connect after several attempts: {e}")
 
-    def send_command(self, command):
-        """Sends a command through the socket and reads a one-line response."""
-        if self.connection:
-            try:
-                self.connection.sendall(command.encode())
-                return self.receive_response()
-            except socket.error:
-                print("Connection error on sending command, attempting to reconnect...")
-                self.connect()
-                return self.send_command(command)  # Retry sending command after reconnecting
-
-    def receive_response(self):
-        """Receives a one-line response from the socket."""
-        try:
-            response = self.connection.recv(1024).decode()
-            return response.strip()  # Stripping to ensure it's a clean one-line response
-        except socket.error as e:
-            print(f"Receive error: {e}, trying to reconnect...")
-            self.connect()
-            return self.receive_response()  # Retry receiving response after reconnecting
-
-    def setPressure(self, pressure):
-        """Sets the pressure used in the refraction model."""
-        command = f":SRPRS{pressure:.1f}#"  # Format pressure to one decimal place
-        response = self.send_command(command)
-        return response == "1"
-
-    def setTemperature(self, temperature):
-        """Sets the temperature used in the refraction model."""
-        command = f":SRTMP{temperature:+06.1f}#"  # Format temperature to 6 characters wide with one decimal
-        response = self.send_command(command)
-        return response == "1"
-
-    def getPressure(self):
-        """Retrieves the pressure by sending :GRPRS# and parsing the response."""
-        response = self.send_command(":GRPRS#")
-        if response:
-            pressure_str = response.rstrip('#')  # Remove trailing '#' character
-            try:
-                pressure = float(pressure_str)
-                return pressure
-            except ValueError:
-                return None
-        else:
-            print("Failed to get pressure response")
-            return None
-
-    def getTemperature(self):
-        """Retrieves the temperature by sending :GRTMP# and parsing the response."""
-        response = self.send_command(":GRTMP#")
-        if response:
-            temperature_str = response.rstrip('#')  # Remove trailing '#' character
-            try:
-                temperature = float(temperature_str)
-                return temperature
-            except ValueError:
-                return None
-        else:
-            print("Failed to get temperature response")
-            return None
-
     def close(self):
         """Closes the socket connection."""
         if self.connection:
@@ -128,49 +67,40 @@ class TenMicronManager:
             print("Connection closed.")
             self.connection = None
 
-def main(nina_ip, tenmicron_ip):
+def main(nina_ip, tenmicron_ip, nosync, interval):
     nina = NINAWeather(nina_ip)
     tenmicron = TenMicronManager(tenmicron_ip)
     tenmicron.connect()
     while True:
         try:
             data = nina.getTemperatureAndPressure()
-            if len(data) == 2 and all(isinstance(x, (float, int)) for x in data):  # Ensure both temperature and pressure are present and valid numbers
+            if len(data) == 2 and all(isinstance(x, (float, int)) for x in data):
                 temperature, pressure = data
-                if temperature is not None and pressure is not None:
-                    print(f"Temperature from NINA: {temperature} °C")
-                    print(f"Pressure from NINA: {pressure} hPa")
-                    
-                    success_temp = tenmicron.setTemperature(temperature)
-                    success_press = tenmicron.setPressure(pressure)
-                    
-                    if success_temp and success_press:
-                        # Read back the data from TenMicronManager
-                        retrieved_temperature = tenmicron.getTemperature()
-                        retrieved_pressure = tenmicron.getPressure()
-                        if retrieved_temperature is not None:
-                            print(f"Verified temperature: {retrieved_temperature} °C")
-                        if retrieved_pressure is not None:
-                            print(f"Verified pressure: {retrieved_pressure} hPa")
-                        print("\n")
-                    else:
-                        print("Failed to update TenMicron with new values.")
-                else:
-                    print("Error: Temperature and/or pressure data missing.")
-                time.sleep(60)  # Wait for one minute before next update
+                print(f"Temperature from NINA: {temperature} °C")
+                print(f"Pressure from NINA: {pressure} hPa")
+                
+                if not nosync:
+                    # Sync the values to the TenMicron system if not in no-sync mode
+                    tenmicron.setTemperature(temperature)
+                    tenmicron.setPressure(pressure)
+
+                print("\n")
+                time.sleep(interval)  # Wait for the specified interval before next update
             else:
-                print("Error: No weather data received from NINA.")
-                time.sleep(60)  # Wait for one minute before retrying
+                print("Error: No valid weather data received from NINA.")
+                time.sleep(interval)  # Wait for the specified interval before retrying
         except KeyboardInterrupt:
             print("\nExiting...")
             tenmicron.close()
             sys.exit(0)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Connect to NINA and TenMicron systems.')
+    parser = argparse.ArgumentParser(description='Connect to NINA and TenMicron systems and optionally sync data.')
     parser.add_argument('--ninaip', default='127.0.0.1', help='IP address for NINA system')
     parser.add_argument('--tenmicronip', default='1.1.1.1', help='IP address for TenMicron system')
+    parser.add_argument('--nosync', action='store_true', help='Do not sync data to the TenMicron system')
+    parser.add_argument('--interval', type=int, default=1800, help='Interval in seconds between updates')
 
     args = parser.parse_args()
 
-    main(args.ninaip, args.tenmicronip)
+    main(args.ninaip, args.tenmicronip, args.nosync, args.interval)
